@@ -2,7 +2,6 @@ package graph
 
 import (
 	"fmt"
-	"strings"
 )
 
 type GraphPath interface {
@@ -81,12 +80,10 @@ func (g *graphPath) findAllShortestPathsAndCost(from, to string) ([][]string, ui
 
 	paths := [][]string{}
 
-	var visitedMap Visited
-
-	parentPath, _ := visitedMap.Visit("", from)
+	visitedPaths, _ := IsVisited([]string{}, from)
 
 	subGraph.Walk(from, func(w string, c uint) bool {
-		subpaths := g.findAllPaths(subGraph, w, to, parentPath, visitedMap)
+		subpaths := g.findAllPaths(subGraph, w, to, visitedPaths)
 		if len(subpaths) > 0 {
 			for _, subpath := range subpaths {
 				subpath = append([]string{from}, subpath...)
@@ -116,7 +113,7 @@ func (g *graphPath) findAllShortestPathsAndCostBFS(from, to string) ([][]string,
 	return paths, cost, nil
 }
 
-func (g *graphPath) findAllPaths(subGraph Graph, from, to, parentPath string, visitedMap Visited) [][]string {
+func (g *graphPath) findAllPaths(subGraph Graph, from, to string, visitedPaths []string) [][]string {
 	paths := [][]string{}
 
 	if from == to {
@@ -125,13 +122,13 @@ func (g *graphPath) findAllPaths(subGraph Graph, from, to, parentPath string, vi
 		return paths
 	}
 
-	parentPath, visited := visitedMap.Visit(parentPath, from)
+	visitedPaths, visited := IsVisited(visitedPaths, from)
 	if visited {
 		return paths
 	}
 
 	subGraph.Walk(from, func(w string, c uint) bool {
-		subpaths := g.findAllPaths(subGraph, w, to, parentPath, visitedMap)
+		subpaths := g.findAllPaths(subGraph, w, to, visitedPaths)
 		if len(subpaths) > 0 {
 			// prefix ourselves to each of the subpath
 			for _, subpath := range subpaths {
@@ -148,7 +145,6 @@ func (g *graphPath) findAllPaths(subGraph Graph, from, to, parentPath string, vi
 
 func (g *graphPath) findAllPathsBFS(subGraph Graph, from, to string) [][]string {
 	paths := [][]string{}
-	var visitedMap Visited
 
 	if from == to {
 		paths = append(paths, []string{from})
@@ -156,30 +152,27 @@ func (g *graphPath) findAllPathsBFS(subGraph Graph, from, to string) [][]string 
 		return paths
 	}
 
-	for queue := []string{from, ""}; len(queue) > 0; {
-		entry := queue[0]
-		prefix := queue[1]
+	for queue := []interface{}{from, []string{}}; len(queue) > 0; {
+		entry := queue[0].(string)
+		parents := queue[1].([]string)
 		queue = queue[2:]
-		path := entry
-		if prefix != "" {
-			path = prefix + "/" + entry
-		}
-
-		parentPath, _ := visitedMap.Visit(prefix, entry)
+		path := append([]string{}, parents...)
+		path = append(path, entry)
 
 		subGraph.Walk(entry, func(w string, c uint) bool {
 			if w == to {
-				completePath := path + "/" + w
-				paths = append(paths, strings.Split(completePath, "/"))
+				result := append([]string{}, path...)
+				result = append(result, w)
+				paths = append(paths, result)
 
 				return false
 			}
 
-			if _, visited := visitedMap.Visit(parentPath, w); visited {
+			if _, visited := IsVisited(path, w); visited {
 				return false
 			}
 
-			queue = append(queue, []string{w, path}...)
+			queue = append(queue, []interface{}{w, path}...)
 
 			return false
 		})

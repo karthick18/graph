@@ -1,7 +1,5 @@
 package graph
 
-import "strings"
-
 type Graph interface {
 	Order() int
 	Size() int
@@ -17,18 +15,15 @@ type Graph interface {
 	RemoveEdge(NodeAndNeighbor) error
 }
 
-type Visited string
-
-func (visited Visited) Visit(parent, child string) (string, bool) {
-	parts := strings.Split(parent, "/")
-
-	for _, part := range parts {
-		if part == child {
-			return "", true
+func IsVisited(visited []string, child string) ([]string, bool) {
+	for _, v := range visited {
+		if v == child {
+			return nil, true
 		}
 	}
 
-	childPath := parent + "/" + child
+	visited = append([]string{}, visited...)
+	visited = append(visited, child)
 
-	return childPath, false
+	return visited, false
 }

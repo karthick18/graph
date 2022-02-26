@@ -17,14 +17,22 @@ type DirectedGraphImpl struct {
 	nodes   map[string]*Node
 	edges   []*Edge
 	edgeMap map[NodeAndNeighbor]*Edge
+	*graphPath
 	sync.Mutex
 }
 
+var _ Graph = &DirectedGraphImpl{}
+var _ GraphPath = &DirectedGraphImpl{}
+
 func NewDirectedGraph() *DirectedGraphImpl {
-	return &DirectedGraphImpl{nodes: make(map[string]*Node),
+	dag := &DirectedGraphImpl{
+		nodes:   make(map[string]*Node),
 		edges:   make([]*Edge, 0),
 		edgeMap: make(map[NodeAndNeighbor]*Edge),
 	}
+	dag.graphPath = newGraphPath(dag)
+
+	return dag
 }
 
 func (d *DirectedGraphImpl) Clone() *DirectedGraphImpl {
@@ -56,12 +64,28 @@ func (d *DirectedGraphImpl) Clone() *DirectedGraphImpl {
 	return c
 }
 
+func (d *DirectedGraphImpl) New() Graph {
+	return NewDirectedGraph()
+}
+
 func (d *DirectedGraphImpl) Order() int {
 	return len(d.nodes)
 }
 
 func (d *DirectedGraphImpl) Size() int {
 	return len(d.edges)
+}
+
+func (d *DirectedGraphImpl) Nodes() []string {
+	nodes := make([]string, len(d.nodes))
+	index := 0
+
+	for name := range d.nodes {
+		nodes[index] = name
+		index++
+	}
+
+	return nodes
 }
 
 func (d *DirectedGraphImpl) String() string {
@@ -174,10 +198,11 @@ func (d *DirectedGraphImpl) loopDetect(src *Node, path []string, visited map[str
 	return nil
 }
 
-func (d *DirectedGraphImpl) RemoveEdge(nodeAndNeighbor NodeAndNeighbor) {
+func (d *DirectedGraphImpl) RemoveEdge(nodeAndNeighbor NodeAndNeighbor) error {
 	edge, ok := d.edgeMap[nodeAndNeighbor]
 	if !ok {
-		return
+		return fmt.Errorf("%w: no edge found for %s->%s", ErrNoEdgesInGraph,
+			nodeAndNeighbor.node, nodeAndNeighbor.neighbor)
 	}
 
 	delete(d.edgeMap, nodeAndNeighbor)
@@ -205,6 +230,8 @@ func (d *DirectedGraphImpl) RemoveEdge(nodeAndNeighbor NodeAndNeighbor) {
 			break
 		}
 	}
+
+	return nil
 }
 
 func (d *DirectedGraphImpl) getIncomingDegrees() (map[string]int, error) {
@@ -354,6 +381,10 @@ func (d *DirectedGraphImpl) Visit(vertex string, visit func(w string, c uint) bo
 	return d.visitNoLock(vertex, visit)
 }
 
+func (d *DirectedGraphImpl) Walk(vertex string, visit func(w string, c uint) bool) error {
+	return d.visitNoLock(vertex, visit)
+}
+
 func (d *DirectedGraphImpl) BFS(vertex string, visit func(v, w string, c uint) bool) ([]string, error) {
 	d.Lock()
 	defer d.Unlock()
@@ -398,7 +429,7 @@ func (d *DirectedGraphImpl) ShortestPathAndCost(v, w string) ([]string, uint, er
 	d.Lock()
 	defer d.Unlock()
 
-	cost, parents, err := d.shortestPathsNoLock(v)
+	cost, parents, err := d.shortestPaths(v)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -429,47 +460,41 @@ func (d *DirectedGraphImpl) ShortestPath(v, w string) ([]string, error) {
 	return path, nil
 }
 
-func (d *DirectedGraphImpl) shortestPathsNoLock(from string) (map[string]uint, map[string]string, error) {
-	cost := make(map[string]uint)
-	parents := make(map[string]string)
-
-	for _, n := range d.nodes {
-		cost[n.name] = Infinity
-		parents[n.name] = ""
-	}
-
-	cost[from] = 0
-
-	prioQueue := NewHeap([]string{}, func(n1, n2 string) bool {
-		return cost[n1] < cost[n2]
-	})
-
-	prioQueue.Push(from)
-
-	for prioQueue.Len() > 0 {
-		vertex, err := prioQueue.Pop()
-		if err != nil {
-			return nil, nil, err
-		}
-
-		d.visitNoLock(vertex, func(w string, c uint) (skip bool) {
-			costW := cost[vertex] + c
-			if costW < cost[w] {
-				cost[w] = costW
-				parents[w] = vertex
-				prioQueue.PushOrFix(w)
-			}
-
-			return
-		})
-	}
-
-	return cost, parents, nil
-}
-
 func (d *DirectedGraphImpl) ShortestPaths(from string) (map[string]uint, map[string]string, error) {
 	d.Lock()
 	defer d.Unlock()
 
-	return d.shortestPathsNoLock(from)
+	return d.shortestPaths(from)
+}
+
+func (d *DirectedGraphImpl) FindAllShortestPathsAndCost(from, to string) ([][]string, uint, error) {
+	d.Lock()
+	defer d.Unlock()
+
+	return d.findAllShortestPathsAndCost(from, to)
+}
+
+func (d *DirectedGraphImpl) FindAllShortestPaths(from, to string) ([][]string, error) {
+	paths, _, err := d.FindAllShortestPathsAndCost(from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	return paths, nil
+}
+
+func (d *DirectedGraphImpl) FindAllShortestPathsAndCostBFS(from, to string) ([][]string, uint, error) {
+	d.Lock()
+	defer d.Unlock()
+
+	return d.findAllShortestPathsAndCostBFS(from, to)
+}
+
+func (d *DirectedGraphImpl) FindAllShortestPathsBFS(from, to string) ([][]string, error) {
+	paths, _, err := d.FindAllShortestPathsAndCostBFS(from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	return paths, nil
 }

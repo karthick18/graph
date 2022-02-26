@@ -17,13 +17,20 @@ type UndirectedGraphImpl struct {
 	edges   []*Edge
 	nodes   map[string]*Node
 	edgeMap map[NodeAndNeighbor]*Edge
+	*graphPath
 }
 
+var _ Graph = &UndirectedGraphImpl{}
+var _ GraphPath = &UndirectedGraphImpl{}
+
 func NewUndirectedGraph() *UndirectedGraphImpl {
-	return &UndirectedGraphImpl{
+	undirected := &UndirectedGraphImpl{
 		nodes:   make(map[string]*Node),
 		edgeMap: make(map[NodeAndNeighbor]*Edge),
 	}
+	undirected.graphPath = newGraphPath(undirected)
+
+	return undirected
 }
 
 func (g *UndirectedGraphImpl) Order() int {
@@ -32,6 +39,22 @@ func (g *UndirectedGraphImpl) Order() int {
 
 func (g *UndirectedGraphImpl) Size() int {
 	return len(g.edges)
+}
+
+func (g *UndirectedGraphImpl) Nodes() []string {
+	nodes := make([]string, len(g.nodes))
+	index := 0
+
+	for name := range g.nodes {
+		nodes[index] = name
+		index++
+	}
+
+	return nodes
+}
+
+func (g *UndirectedGraphImpl) New() Graph {
+	return NewUndirectedGraph()
 }
 
 func (g *UndirectedGraphImpl) String() string {
@@ -198,6 +221,10 @@ func (g *UndirectedGraphImpl) visitNoLock(node string, visit func(w string, c ui
 	return nil
 }
 
+func (g *UndirectedGraphImpl) Walk(node string, visit func(w string, c uint) bool) error {
+	return g.visitNoLock(node, visit)
+}
+
 func (g *UndirectedGraphImpl) Visit(node string, visit func(w string, c uint) bool) error {
 	g.Lock()
 	defer g.Unlock()
@@ -314,7 +341,7 @@ func (g *UndirectedGraphImpl) ShortestPathAndCost(v, w string) ([]string, uint, 
 	g.Lock()
 	defer g.Unlock()
 
-	parents, cost, err := g.shortestPathsNoLock(v)
+	cost, parents, err := g.shortestPaths(v)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -347,177 +374,18 @@ func (g *UndirectedGraphImpl) ShortestPath(v, w string) ([]string, error) {
 	return path, nil
 }
 
-func (g *UndirectedGraphImpl) ShortestPaths(v string) (map[string]string, map[string]uint, error) {
+func (g *UndirectedGraphImpl) ShortestPaths(v string) (map[string]uint, map[string]string, error) {
 	g.Lock()
 	defer g.Unlock()
 
-	return g.shortestPathsNoLock(v)
-}
-
-func (g *UndirectedGraphImpl) shortestPathsNoLock(v string) (map[string]string, map[string]uint, error) {
-	parents := make(map[string]string, len(g.nodes))
-	cost := make(map[string]uint, len(g.nodes))
-
-	parents[v] = ""
-	cost[v] = 0
-
-	prioQueue := NewHeap([]string{}, func(n1, n2 string) bool {
-		c1, ok := cost[n1]
-		if !ok {
-			c1 = Infinity
-		}
-
-		c2, ok := cost[n2]
-		if !ok {
-			c2 = Infinity
-		}
-
-		return c1 < c2
-	})
-
-	prioQueue.Push(v)
-
-	for prioQueue.Len() > 0 {
-		v, err := prioQueue.Pop()
-		if err != nil {
-			return nil, nil, err
-		}
-
-		g.visitNoLock(v, func(w string, c uint) bool {
-			costW := cost[v] + c
-			curCost, ok := cost[w]
-			if !ok {
-				cost[w] = costW
-				parents[w] = v
-				prioQueue.Push(w)
-			} else {
-				if costW < curCost {
-					cost[w] = costW
-					parents[w] = v
-					prioQueue.Fix(w)
-				}
-			}
-
-			return false
-		})
-	}
-
-	return parents, cost, nil
-}
-
-func (g *UndirectedGraphImpl) removeEdges(edges []NodeAndNeighbor) {
-	for _, edge := range edges {
-		g.RemoveEdge(edge)
-	}
-}
-
-func (g *UndirectedGraphImpl) shortestPathsAllNoLock(v string) (*UndirectedGraphImpl, map[string]uint, error) {
-	subGraph := NewUndirectedGraph()
-
-	cost := make(map[string]uint, len(g.nodes))
-
-	edgesMap := make(map[string][]NodeAndNeighbor)
-
-	prioQueue := NewHeap([]string{}, func(n1, n2 string) bool {
-		c1, ok := cost[n1]
-		if !ok {
-			c1 = Infinity
-		}
-
-		c2, ok := cost[n2]
-		if !ok {
-			c2 = Infinity
-		}
-
-		return c1 < c2
-	})
-
-	cost[v] = 0
-
-	prioQueue.Push(v)
-
-	for prioQueue.Len() > 0 {
-		v, err := prioQueue.Pop()
-		if err != nil {
-			return nil, nil, err
-		}
-
-		g.visitNoLock(v, func(w string, c uint) bool {
-			costW := cost[v] + c
-			currentCost, ok := cost[w]
-			if !ok {
-				cost[w] = costW
-				err = subGraph.AddWithCost(Edge{Node: v, Neighbor: w, Cost: costW})
-				if err != nil {
-					return true
-				}
-
-				edgesMap[w] = append(edgesMap[w], NodeAndNeighbor{node: v, neighbor: w})
-				prioQueue.Push(w)
-			} else if costW <= currentCost {
-
-				if costW < currentCost {
-					cost[w] = costW
-					prioQueue.Fix(w)
-
-					subGraph.removeEdges(edgesMap[w])
-					edgesMap[w] = []NodeAndNeighbor{}
-				}
-
-				err = subGraph.AddWithCost(Edge{Node: v, Neighbor: w, Cost: costW})
-				if err != nil {
-					return true
-				}
-
-				edgesMap[w] = append(edgesMap[w], NodeAndNeighbor{node: v, neighbor: w})
-			}
-
-			return false
-		})
-
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	return subGraph, cost, nil
+	return g.shortestPaths(v)
 }
 
 func (g *UndirectedGraphImpl) FindAllShortestPathsAndCost(from, to string) ([][]string, uint, error) {
 	g.Lock()
+	defer g.Unlock()
 
-	subGraph, costMap, err := g.shortestPathsAllNoLock(from)
-
-	g.Unlock()
-
-	if err != nil {
-		return nil, 0, fmt.Errorf("%w: error finding all shortest paths", err)
-	}
-
-	cost, ok := costMap[to]
-	if !ok {
-		return nil, 0, fmt.Errorf("%w: no path found in graph for %s->%s", ErrNoPathInGraph, from, to)
-	}
-
-	paths := [][]string{}
-
-	visitedMap := make(map[string]struct{})
-
-	visitedMap[from] = struct{}{}
-
-	subGraph.visitNoLock(from, func(w string, c uint) bool {
-		subpaths := subGraph.findAllPaths(w, to, visitedMap)
-		if len(subpaths) > 0 {
-			for _, subpath := range subpaths {
-				subpath = append([]string{from}, subpath...)
-				paths = append(paths, subpath)
-			}
-		}
-
-		return false
-	})
-
-	return paths, cost, nil
+	return g.findAllShortestPathsAndCost(from, to)
 }
 
 func (g *UndirectedGraphImpl) FindAllShortestPaths(from, to string) ([][]string, error) {
@@ -529,33 +397,18 @@ func (g *UndirectedGraphImpl) FindAllShortestPaths(from, to string) ([][]string,
 	return paths, nil
 }
 
-func (g *UndirectedGraphImpl) findAllPaths(from, to string, visitedMap map[string]struct{}) [][]string {
-	paths := [][]string{}
+func (g *UndirectedGraphImpl) FindAllShortestPathsAndCostBFS(from, to string) ([][]string, uint, error) {
+	g.Lock()
+	defer g.Unlock()
 
-	if from == to {
-		paths = append(paths, []string{from})
+	return g.findAllShortestPathsAndCostBFS(from, to)
+}
 
-		return paths
+func (g *UndirectedGraphImpl) FindAllShortestPathsBFS(from, to string) ([][]string, error) {
+	paths, _, err := g.FindAllShortestPathsAndCostBFS(from, to)
+	if err != nil {
+		return nil, err
 	}
 
-	if _, ok := visitedMap[from]; ok {
-		return paths
-	}
-
-	visitedMap[from] = struct{}{}
-
-	g.visitNoLock(from, func(w string, c uint) bool {
-		subpaths := g.findAllPaths(w, to, visitedMap)
-		if len(subpaths) > 0 {
-			// prefix ourselves to each of the subpath
-			for _, subpath := range subpaths {
-				subpath = append([]string{from}, subpath...)
-				paths = append(paths, subpath)
-			}
-		}
-
-		return false
-	})
-
-	return paths
+	return paths, nil
 }

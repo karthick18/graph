@@ -143,9 +143,10 @@ func (d *DirectedGraphImpl) AddWithCost(edge Edge) error {
 
 	if src != nil {
 		path := make([]string, 0, len(d.nodes))
-		checkForLoop := func(n *Node) error {
+		checkForLoop := func(n *Node, path []string) error {
 			if n.name == edge.Neighbor {
-				return fmt.Errorf("cycle detected for directedGraph. Node %s is incoming to %s along path: %v", edge.Neighbor, edge.Node, path)
+				return fmt.Errorf("%w: cycle detected for directedGraph. Node %s is incoming to %s along path: %v",
+					ErrLoopInDag, edge.Neighbor, edge.Node, path)
 			}
 
 			return nil
@@ -176,7 +177,8 @@ func (d *DirectedGraphImpl) AddWithCost(edge Edge) error {
 	return nil
 }
 
-func (d *DirectedGraphImpl) loopDetect(src *Node, path []string, visited map[string]struct{}, checkForLoop func(n *Node) error) error {
+func (d *DirectedGraphImpl) loopDetect(src *Node, path []string, visited map[string]struct{},
+	checkForLoop func(n *Node, path []string) error) error {
 	if _, ok := visited[src.name]; ok {
 		return nil
 	}
@@ -190,7 +192,7 @@ func (d *DirectedGraphImpl) loopDetect(src *Node, path []string, visited map[str
 		}
 	}
 
-	if err := checkForLoop(src); err != nil {
+	if err := checkForLoop(src, path); err != nil {
 		return err
 	}
 

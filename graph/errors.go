@@ -7,4 +7,5 @@ var (
 	ErrNoNodesInHeap  = errors.New("no-nodes-in-heap")
 	ErrNoPathInGraph  = errors.New("no-path-found-in-graph")
 	ErrNoNodeInGraph  = errors.New("no-node-in-graph")
+	ErrLoopInDag      = errors.New("loop-in-dag")
 )

@@ -1,11 +1,14 @@
 package pipeline_test
 
 import (
-	"github.com/karthick18/go-graph/pipeline"
-	"github.com/stretchr/testify/assert"
 	"math/rand"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
+
+	"github.com/karthick18/go-graph/pipeline"
+	"github.com/stretchr/testify/assert"
 )
 
 type DagConfig struct {
@@ -16,6 +19,20 @@ type DagConfig struct {
 }
 
 func testPipelineOp(t *testing.T, dagConfig map[string]DagConfig, pipelineInstance pipeline.Pipeline, pipelineName string) {
+	expectedWaitListMap := map[string][]string{
+		"FILE_IMPORTER":            []string{},
+		"MAC_CAPTURE":              []string{"FILE_IMPORTER"},
+		"DHCP":                     []string{"FILE_IMPORTER"},
+		"VENDOR":                   []string{"FILE_IMPORTER"},
+		"VENDOR2":                  []string{"FILE_IMPORTER"},
+		"DNS":                      []string{"DHCP", "MAC_CAPTURE", "VENDOR", "VENDOR2", "FILE_IMPORTER"},
+		"NESSUS":                   []string{"DNS", "DHCP", "MAC_CAPTURE", "VENDOR", "VENDOR2", "FILE_IMPORTER"},
+		"NESSUS_HOST_NETWORK_SCAN": []string{"NESSUS", "DNS", "DHCP", "MAC_CAPTURE", "VENDOR", "VENDOR2", "FILE_IMPORTER"},
+		"LEARNING_ML":              []string{"NESSUS_HOST_NETWORK_SCAN", "NESSUS", "DNS", "DHCP", "MAC_CAPTURE", "VENDOR", "VENDOR2", "FILE_IMPORTER"},
+		"STOP":                     []string{"LEARNING_ML", "NESSUS_HOST_NETWORK_SCAN", "NESSUS", "DNS", "DHCP", "MAC_CAPTURE", "VENDOR", "VENDOR2", "FILE_IMPORTER"},
+	}
+	actualWaitListMap := make(map[string][]string)
+
 	ops, err := pipelineInstance.PipelineOperations(pipelineName)
 	assert.Nil(t, err, "error getting pipeline operations")
 
@@ -59,7 +76,10 @@ func testPipelineOp(t *testing.T, dagConfig map[string]DagConfig, pipelineInstan
 		}
 		pipelineOp.WaitList = waitPipelines
 		pipelineOps = append(pipelineOps, pipelineOp)
+		actualWaitListMap[pipelineOp.Name] = waitPipelines
+		t.Log("Pipeline", pipelineOp.Name, "Waitlist", waitPipelines)
 	}
+
 	// create channels for all pipeline ops
 	for _, pipelineOp := range pipelineOps {
 		if _, ok := channelMap[pipelineOp.Name]; !ok {
@@ -80,6 +100,23 @@ func testPipelineOp(t *testing.T, dagConfig map[string]DagConfig, pipelineInstan
 
 	// wait for pipeline completion
 	<-channelMap[pipelineName]
+
+	for pipeline := range expectedWaitListMap {
+		sort.Slice(expectedWaitListMap[pipeline], func(i, j int) bool {
+			return expectedWaitListMap[pipeline][i] < expectedWaitListMap[pipeline][j]
+		})
+	}
+
+	for pipeline := range actualWaitListMap {
+		sort.Slice(actualWaitListMap[pipeline], func(i, j int) bool {
+			return actualWaitListMap[pipeline][i] < actualWaitListMap[pipeline][j]
+		})
+	}
+
+	for pipeline, waitList := range actualWaitListMap {
+		expectedWaitList := expectedWaitListMap[pipeline]
+		assert.Equal(t, reflect.DeepEqual(waitList, expectedWaitList), true, "Actual wait list does not match expected")
+	}
 }
 
 func testPipeline(t *testing.T, dagConfig map[string]DagConfig, pipelineName string) {

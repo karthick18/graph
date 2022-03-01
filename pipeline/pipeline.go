@@ -124,21 +124,21 @@ func (p *pipeline) PipelineOperations(operation string) ([]PipelineOp, error) {
 	}
 
 	var pipelineOps []PipelineOp
-	var waitPipelines []string
-	for _, n := range nodes {
-		switch {
-		case n.Depth == 0:
-			pipelineOps = append(pipelineOps, PipelineOp{Name: n.Node})
-			waitPipelines = append(waitPipelines, n.Node)
-		default:
-			pipelineOps = append(pipelineOps, PipelineOp{Name: n.Node,
-				WaitList: append([]string{}, waitPipelines...),
-			})
-			waitPipelines = append(waitPipelines, n.Node)
-		}
+
+	waitPipelines := make(map[int][]string, len(nodes))
+
+	for index, n := range nodes {
+		pipelineOps = append(pipelineOps, PipelineOp{Name: n.Node,
+			WaitList: waitPipelines[n.Depth-1],
+		})
 
 		if n.Node == operation {
 			break
+		}
+
+		waitPipelines[n.Depth] = append(waitPipelines[n.Depth], n.Node)
+		if index < len(nodes)-1 && nodes[index+1].Depth != n.Depth {
+			waitPipelines[n.Depth] = append(waitPipelines[n.Depth], waitPipelines[n.Depth-1]...)
 		}
 	}
 

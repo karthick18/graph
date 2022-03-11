@@ -8,12 +8,21 @@ import (
 	"sync"
 )
 
+type DagType int
+
+const (
+	Connected DagType = iota
+	Unconnected
+	DagTypeDefault = Connected
+)
+
 type DAG interface {
 	Graph
 	TopologicalSort() ([]NodeAndDepth, error)
 }
 
 type DirectedGraphImpl struct {
+	dagType DagType
 	nodes   map[string]*Node
 	edges   []*Edge
 	edgeMap map[NodeAndNeighbor]*Edge
@@ -24,8 +33,25 @@ type DirectedGraphImpl struct {
 var _ Graph = &DirectedGraphImpl{}
 var _ GraphPath = &DirectedGraphImpl{}
 
-func NewDirectedGraph() *DirectedGraphImpl {
+func (t DagType) String() string {
+	switch t {
+	case Connected:
+		return "Connected"
+	case Unconnected:
+		return "Unconnected"
+	}
+
+	return "Unknown"
+}
+
+func NewDirectedGraph(opts ...DagType) *DirectedGraphImpl {
+	dagType := DagTypeDefault
+	if len(opts) > 0 {
+		dagType = opts[0]
+	}
+
 	dag := &DirectedGraphImpl{
+		dagType: dagType,
 		nodes:   make(map[string]*Node),
 		edges:   make([]*Edge, 0),
 		edgeMap: make(map[NodeAndNeighbor]*Edge),
@@ -89,8 +115,9 @@ func (d *DirectedGraphImpl) Nodes() []string {
 }
 
 func (d *DirectedGraphImpl) String() string {
-	buffer := bytes.NewBufferString("")
+	buffer := bytes.NewBufferString("\n")
 
+	buffer.WriteString(fmt.Sprintf("Type: %s\n", d.dagType))
 	buffer.WriteString(fmt.Sprintf("Nodes: %d\n", len(d.nodes)))
 	buffer.WriteString(fmt.Sprintf("Edges: %d\n", len(d.edges)))
 
@@ -142,19 +169,21 @@ func (d *DirectedGraphImpl) AddWithCost(edge Edge) error {
 	}
 
 	if src != nil {
-		path := make([]string, 0, len(d.nodes))
-		checkForLoop := func(n *Node, path []string) error {
-			if n.name == edge.Neighbor {
-				return fmt.Errorf("%w: cycle detected for directedGraph. Node %s is incoming to %s along path: %v",
-					ErrLoopInDag, edge.Neighbor, edge.Node, path)
+		if d.dagType == Unconnected {
+			path := make([]string, 0, len(d.nodes))
+			checkForLoop := func(n *Node, path []string) error {
+				if n.name == edge.Neighbor {
+					return fmt.Errorf("%w: cycle detected for directedGraph. Node %s is incoming to %s along path: %v",
+						ErrLoopInDag, edge.Neighbor, edge.Node, path)
+				}
+
+				return nil
 			}
 
-			return nil
-		}
-
-		visited := make(map[string]struct{})
-		if err := d.loopDetect(src, path, visited, checkForLoop); err != nil {
-			return err
+			visited := make(map[string]struct{})
+			if err := d.loopDetect(src, path, visited, checkForLoop); err != nil {
+				return err
+			}
 		}
 		src.setWeight(edge.Cost, uint(len(src.outgoing)+1))
 	} else {
@@ -292,13 +321,16 @@ func (d *DirectedGraphImpl) TopologicalSort() ([]NodeAndDepth, error) {
 }
 
 func (d *DirectedGraphImpl) dfs(vertex *Node, queue *list.List, data *DFSData, depth int) error {
-
 	if data.NodeColor[vertex.name] == Black {
 		return nil
 	}
 
 	if data.NodeColor[vertex.name] == Gray {
-		return errors.New("not-a-directedGraph")
+		if d.dagType == Unconnected {
+			return errors.New("not-a-directedGraph")
+		}
+
+		return nil
 	}
 
 	data.Time++
@@ -321,7 +353,7 @@ func (d *DirectedGraphImpl) dfs(vertex *Node, queue *list.List, data *DFSData, d
 	return nil
 }
 
-func (d *DirectedGraphImpl) DFSWithData() ([]NodeAndDepth, *DFSData, error) {
+func (d *DirectedGraphImpl) DFSWithData(vertex ...string) ([]NodeAndDepth, *DFSData, error) {
 	queue := list.New()
 	data := &DFSData{
 		Prev:      make(map[string]string, len(d.nodes)),
@@ -333,11 +365,17 @@ func (d *DirectedGraphImpl) DFSWithData() ([]NodeAndDepth, *DFSData, error) {
 	d.Lock()
 	defer d.Unlock()
 
-	for _, node := range d.nodes {
-		if len(node.incoming) > 0 {
-			continue
+	traverse := d.nodes
+	if len(vertex) > 0 {
+		start := d.nodes[vertex[0]]
+		if start == nil {
+			return nil, nil, ErrNoNodeInGraph
 		}
 
+		traverse = map[string]*Node{vertex[0]: start}
+	}
+
+	for _, node := range traverse {
 		if err := d.dfs(node, queue, data, 0); err != nil {
 			return nil, nil, err
 		}
@@ -351,8 +389,8 @@ func (d *DirectedGraphImpl) DFSWithData() ([]NodeAndDepth, *DFSData, error) {
 	return nodeAndDepth, data, nil
 }
 
-func (d *DirectedGraphImpl) DFS() ([]NodeAndDepth, error) {
-	nd, _, err := d.DFSWithData()
+func (d *DirectedGraphImpl) DFS(vertex ...string) ([]NodeAndDepth, error) {
+	nd, _, err := d.DFSWithData(vertex...)
 	if err != nil {
 		return nil, err
 	}
@@ -499,4 +537,110 @@ func (d *DirectedGraphImpl) FindAllShortestPathsBFS(from, to string) ([][]string
 	}
 
 	return paths, nil
+}
+
+func (d *DirectedGraphImpl) Transpose() (*DirectedGraphImpl, error) {
+	transpose := NewDirectedGraph(d.dagType)
+
+	for _, e := range d.edges {
+		edge := Edge{Node: e.Neighbor, Neighbor: e.Node, Cost: e.Cost}
+		if err := transpose.AddWithCost(edge); err != nil {
+			return nil, fmt.Errorf("%w: error transposing graph", err)
+		}
+	}
+
+	return transpose, nil
+}
+
+func (d *DirectedGraphImpl) IsStronglyConnected(vertex ...string) (bool, error) {
+	if d.dagType == Unconnected {
+		return false, nil
+	}
+
+	d.Lock()
+	nodes := d.Nodes()
+	d.Unlock()
+
+	if len(nodes) == 0 {
+		return false, ErrNoNodeInGraph
+	}
+
+	searchVertex := nodes[0]
+	if len(vertex) > 0 {
+		searchVertex = vertex[0]
+	}
+
+	_, data, err := d.DFSWithData(searchVertex)
+	if err != nil {
+		return false, err
+	}
+
+	// check if all nodes are visited
+	for _, name := range nodes {
+		if data.NodeColor[name] != Black {
+			return false, nil
+		}
+	}
+
+	transpose, err := d.Transpose()
+	if err != nil {
+		return false, err
+	}
+
+	_, data, err = transpose.DFSWithData(searchVertex)
+	if err != nil {
+		return false, err
+	}
+
+	for name := range transpose.nodes {
+		if data.NodeColor[name] != Black {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+func (d *DirectedGraphImpl) GetStronglyConnectedComponents() ([][]string, error) {
+	nodeAndDepth, err := d.DFS()
+	if err != nil {
+		return nil, err
+	}
+
+	transpose, err := d.Transpose()
+	if err != nil {
+		return nil, err
+	}
+
+	data := &DFSData{
+		Prev:      make(map[string]string, len(transpose.nodes)),
+		Finish:    make(map[string]int, len(transpose.nodes)),
+		Discover:  make(map[string]int, len(transpose.nodes)),
+		NodeColor: make(map[string]Color, len(transpose.nodes)),
+	}
+
+	sccComponents := make([][]string, 0, len(transpose.nodes))
+
+	for _, nd := range nodeAndDepth {
+		if data.NodeColor[nd.Node] != White {
+			continue
+		}
+
+		node := transpose.nodes[nd.Node]
+		stack := list.New()
+
+		if err := transpose.dfs(node, stack, data, 0); err != nil {
+			return nil, err
+		}
+
+		components := make([]string, stack.Len())
+		for index, e := 0, stack.Front(); e != nil; index, e = index+1, e.Next() {
+			ref := e.Value.(*nodeReferenceAndDepth)
+			components[index] = ref.node.name
+		}
+
+		sccComponents = append(sccComponents, components)
+	}
+
+	return sccComponents, nil
 }

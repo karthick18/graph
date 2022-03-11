@@ -20,8 +20,17 @@ type UndirectedGraphImpl struct {
 	*graphPath
 }
 
-var _ Graph = &UndirectedGraphImpl{}
-var _ GraphPath = &UndirectedGraphImpl{}
+var (
+	_   Graph     = &UndirectedGraphImpl{}
+	_   GraphPath = &UndirectedGraphImpl{}
+	min           = func(a, b int) int {
+		if a < b {
+			return a
+		}
+
+		return b
+	}
+)
 
 func NewUndirectedGraph() *UndirectedGraphImpl {
 	undirected := &UndirectedGraphImpl{
@@ -61,7 +70,7 @@ func (g *UndirectedGraphImpl) String() string {
 	g.Lock()
 	defer g.Unlock()
 
-	buffer := bytes.NewBufferString("")
+	buffer := bytes.NewBufferString("\n")
 
 	buffer.WriteString(fmt.Sprintf("Nodes: %d\n", len(g.nodes)))
 	buffer.WriteString(fmt.Sprintf("Edges: %d\n", len(g.edges)))
@@ -77,6 +86,19 @@ func (g *UndirectedGraphImpl) String() string {
 	}
 
 	return buffer.String()
+}
+
+func (g *UndirectedGraphImpl) Transpose() (*UndirectedGraphImpl, error) {
+	transpose := NewUndirectedGraph()
+
+	for _, e := range g.edges {
+		edge := Edge{Node: e.Neighbor, Neighbor: e.Node, Cost: e.Cost}
+		if err := transpose.AddWithCost(edge); err != nil {
+			return nil, fmt.Errorf("%w: error transposing graph", err)
+		}
+	}
+
+	return transpose, nil
 }
 
 func (g *UndirectedGraphImpl) AddWithCost(edge Edge) error {
@@ -302,7 +324,7 @@ func (g *UndirectedGraphImpl) dfs(vertex *Node, queue *list.List, data *DFSData,
 	return nil
 }
 
-func (g *UndirectedGraphImpl) DFSWithData() ([]NodeAndDepth, *DFSData, error) {
+func (g *UndirectedGraphImpl) DFSWithData(vertex ...string) ([]NodeAndDepth, *DFSData, error) {
 	queue := list.New()
 	data := &DFSData{
 		Prev:      make(map[string]string),
@@ -314,7 +336,17 @@ func (g *UndirectedGraphImpl) DFSWithData() ([]NodeAndDepth, *DFSData, error) {
 	g.Lock()
 	defer g.Unlock()
 
-	for _, node := range g.nodes {
+	traverse := g.nodes
+	if len(vertex) > 0 {
+		start := g.nodes[vertex[0]]
+		if start == nil {
+			return nil, nil, ErrNoNodeInGraph
+		}
+
+		traverse = map[string]*Node{vertex[0]: start}
+	}
+
+	for _, node := range traverse {
 		if err := g.dfs(node, queue, data, 0); err != nil {
 			return nil, nil, err
 		}
@@ -328,8 +360,8 @@ func (g *UndirectedGraphImpl) DFSWithData() ([]NodeAndDepth, *DFSData, error) {
 	return nodeAndDepth, data, nil
 }
 
-func (g *UndirectedGraphImpl) DFS() ([]NodeAndDepth, error) {
-	nodeAndDepth, _, err := g.DFSWithData()
+func (g *UndirectedGraphImpl) DFS(vertex ...string) ([]NodeAndDepth, error) {
+	nodeAndDepth, _, err := g.DFSWithData(vertex...)
 	if err != nil {
 		return nil, err
 	}
@@ -411,4 +443,91 @@ func (g *UndirectedGraphImpl) FindAllShortestPathsBFS(from, to string) ([][]stri
 	}
 
 	return paths, nil
+}
+
+func (g *UndirectedGraphImpl) IsStronglyConnected(vertex ...string) (bool, error) {
+	g.Lock()
+	nodes := g.Nodes()
+	defer g.Unlock()
+
+	if len(nodes) == 0 {
+		return false, ErrNoNodeInGraph
+	}
+
+	searchVertex := nodes[0]
+	if len(vertex) > 0 {
+		searchVertex = vertex[0]
+	}
+
+	_, data, err := g.DFSWithData(searchVertex)
+	if err != nil {
+		return false, err
+	}
+
+	// check for all nodes to be visited.
+	for _, name := range nodes {
+		if data.NodeColor[name] != Black {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+func (g *UndirectedGraphImpl) GetBridges() []Edge {
+	g.Lock()
+	defer g.Unlock()
+
+	visited := make(map[string]struct{})
+	parents := make(map[string]string)
+	disc := make(map[string]int)
+	low := make(map[string]int)
+
+	bridges := []Edge{}
+
+	for _, node := range g.nodes {
+		if _, ok := visited[node.name]; ok {
+			continue
+		}
+
+		g.getBridges(node, visited, parents, low, disc, 0, &bridges)
+	}
+
+	return bridges
+}
+
+func (g *UndirectedGraphImpl) getBridges(node *Node,
+	visited map[string]struct{},
+	parents map[string]string,
+	low map[string]int,
+	disc map[string]int,
+	time int,
+	result *[]Edge,
+) {
+
+	time++
+	low[node.name], disc[node.name] = time, time
+	visited[node.name] = struct{}{}
+
+	for _, outgoing := range node.outgoing {
+		if _, ok := visited[outgoing.name]; ok {
+			if parents[node.name] != outgoing.name {
+				low[node.name] = min(low[node.name], disc[outgoing.name])
+			}
+
+			continue
+		}
+
+		parents[outgoing.name] = node.name
+		g.getBridges(outgoing, visited, parents, low, disc, time, result)
+
+		low[node.name] = min(low[node.name], low[outgoing.name])
+
+		if low[outgoing.name] > disc[node.name] {
+			*result = append(*result, *g.edgeMap[NodeAndNeighbor{
+				node:     node.name,
+				neighbor: outgoing.name,
+			}])
+		}
+	}
 }

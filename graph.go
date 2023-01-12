@@ -6,8 +6,8 @@ type Graph interface {
 	Visit(vertex string, visit func(w string, c uint) bool) error
 	Walk(vertex string, visit func(w string, c uint) bool) error
 	BFS(vertex string, visit func(v, w string, c uint) bool) ([]string, error)
-	DFS() ([]NodeAndDepth, error)
-	DFSWithData() ([]NodeAndDepth, *DFSData, error)
+	DFS(...string) ([]NodeAndDepth, error)
+	DFSWithData(...string) ([]NodeAndDepth, *DFSData, error)
 	AddWithCost(Edge) error
 	ShortestPath(v, w string) ([]string, error)
 	ShortestPathAndCost(v, w string) ([]string, uint, error)

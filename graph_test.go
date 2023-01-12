@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/karthick18/graph"
+	graph "github.com/karthick18/graph"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -85,6 +85,97 @@ func TestUndirectedGraph(t *testing.T) {
 	t.Log("DFS path and depth", pathAndDepth)
 }
 
+func TestUndirectedGraphBridges(t *testing.T) {
+	g := graph.NewUndirectedGraph()
+	g.AddWithCostBoth(graph.Edge{Node: "1", Neighbor: "0"})
+	g.AddWithCostBoth(graph.Edge{Node: "0", Neighbor: "2"})
+	g.AddWithCostBoth(graph.Edge{Node: "2", Neighbor: "1"})
+	g.AddWithCostBoth(graph.Edge{Node: "0", Neighbor: "3"})
+	g.AddWithCostBoth(graph.Edge{Node: "3", Neighbor: "4"})
+
+	t.Log("Testing bridges for graph", g)
+
+	expectedEdges := []graph.Edge{
+		{Node: "0", Neighbor: "3"},
+		{Node: "3", Neighbor: "4"},
+	}
+
+	expectedMap := make(map[graph.Edge]struct{})
+
+	for _, edge := range expectedEdges {
+		expectedMap[edge] = struct{}{}
+		expectedMap[graph.Edge{Node: edge.Neighbor, Neighbor: edge.Node}] = struct{}{}
+	}
+
+	res := g.GetBridges()
+	t.Log("Get Bridges", res)
+	assert.Equal(t, len(expectedEdges), len(res), "Get bridges result mismatch")
+
+	for _, r := range res {
+		_, ok := expectedMap[r]
+		assert.Equal(t, ok, true, "Get bridges result mismatch")
+	}
+
+	g = graph.NewUndirectedGraph()
+	g.AddWithCostBoth(graph.Edge{Node: "0", Neighbor: "1"})
+	g.AddWithCostBoth(graph.Edge{Node: "1", Neighbor: "2"})
+	g.AddWithCostBoth(graph.Edge{Node: "2", Neighbor: "3"})
+
+	t.Log("Testing bridges for graph", g)
+
+	expectedEdges = []graph.Edge{
+		{Node: "0", Neighbor: "1"},
+		{Node: "1", Neighbor: "2"},
+		{Node: "2", Neighbor: "3"},
+	}
+
+	expectedMap = make(map[graph.Edge]struct{})
+
+	for _, edge := range expectedEdges {
+		expectedMap[edge] = struct{}{}
+		expectedMap[graph.Edge{Node: edge.Neighbor, Neighbor: edge.Node}] = struct{}{}
+	}
+
+	res = g.GetBridges()
+
+	assert.Equal(t, len(expectedEdges), len(res), "Get bridges result mismatch")
+
+	for _, r := range res {
+		_, ok := expectedMap[r]
+		assert.Equal(t, ok, true, "Get bridges result mismatch")
+	}
+
+	g = graph.NewUndirectedGraph()
+	g.AddWithCostBoth(graph.Edge{Node: "0", Neighbor: "1"})
+	g.AddWithCostBoth(graph.Edge{Node: "1", Neighbor: "2"})
+	g.AddWithCostBoth(graph.Edge{Node: "2", Neighbor: "0"})
+	g.AddWithCostBoth(graph.Edge{Node: "1", Neighbor: "3"})
+	g.AddWithCostBoth(graph.Edge{Node: "1", Neighbor: "4"})
+	g.AddWithCostBoth(graph.Edge{Node: "1", Neighbor: "6"})
+	g.AddWithCostBoth(graph.Edge{Node: "3", Neighbor: "5"})
+	g.AddWithCostBoth(graph.Edge{Node: "4", Neighbor: "5"})
+
+	t.Log("Testing bridges for graph", g)
+
+	expectedMap = make(map[graph.Edge]struct{})
+	expectedEdges = []graph.Edge{
+		{Node: "1", Neighbor: "6"},
+	}
+
+	for _, edge := range expectedEdges {
+		expectedMap[edge] = struct{}{}
+		expectedMap[graph.Edge{Node: edge.Neighbor, Neighbor: edge.Node}] = struct{}{}
+	}
+
+	res = g.GetBridges()
+	assert.Equal(t, len(expectedEdges), len(res), "Get bridges result mismatch")
+
+	for _, r := range res {
+		_, ok := expectedMap[r]
+		assert.Equal(t, ok, true, "Get bridges result mismatch")
+	}
+}
+
 func TestDirectedGraph(t *testing.T) {
 
 	dag := graph.NewDirectedGraph()
@@ -154,7 +245,7 @@ func TestDirectedGraph(t *testing.T) {
 	assert.Equal(t, reflect.DeepEqual(results, expectedPaths), true, "Find all shortest paths mismatch")
 	assert.Equal(t, cost, uint(13), "Find all shortest paths cost mismatch")
 
-	dag = graph.NewDirectedGraph()
+	dag = graph.NewDirectedGraph(graph.Unconnected)
 
 	err = dag.AddWithCost(graph.Edge{Node: "5", Neighbor: "11", Cost: uint(3)})
 	assert.Nil(t, err, "DAG add failure for 5->11")
@@ -173,4 +264,104 @@ func TestDirectedGraph(t *testing.T) {
 	}
 
 	assert.Equal(t, errors.Is(err, graph.ErrLoopInDag), true, "DAG add did not fail with loop detection for 2->5")
+}
+
+func TestDirectedGraphConnected(t *testing.T) {
+	dag := graph.NewDirectedGraph(graph.Unconnected)
+
+	err := dag.AddWithCost(graph.Edge{Node: "5", Neighbor: "11", Cost: uint(3)})
+	assert.Nil(t, err, "DAG add failure for 5->11")
+
+	err = dag.AddWithCost(graph.Edge{Node: "5", Neighbor: "7", Cost: uint(4)})
+	assert.Nil(t, err, "DAG add failure for 5->7")
+
+	err = dag.AddWithCost(graph.Edge{Node: "11", Neighbor: "2", Cost: uint(5)})
+	assert.Nil(t, err, "DAG add failure for 11->2")
+
+	t.Log(dag)
+
+	err = dag.AddWithCost(graph.Edge{Node: "2", Neighbor: "5", Cost: uint(5)})
+	if err != nil {
+		t.Log("DAG add with cost 2->5 error", err)
+	}
+
+	assert.Equal(t, errors.Is(err, graph.ErrLoopInDag), true, "DAG add did not fail with loop detection for 2->5")
+
+	dag = graph.NewDirectedGraph(graph.Connected)
+	err = dag.AddWithCost(graph.Edge{Node: "0", Neighbor: "1"})
+	assert.Nil(t, err, "DAG add failure for 0->1")
+
+	err = dag.AddWithCost(graph.Edge{Node: "1", Neighbor: "2"})
+	assert.Nil(t, err, "DAG add failure for 1->2")
+
+	err = dag.AddWithCost(graph.Edge{Node: "2", Neighbor: "3"})
+	assert.Nil(t, err, "DAG add failure for 2->3")
+
+	isConnected, err := dag.IsStronglyConnected()
+	assert.Nil(t, err, "DAG is strongly connected failed")
+
+	assert.Equal(t, isConnected, false, "DAG should not be strongly connected")
+
+	err = dag.AddWithCost(graph.Edge{Node: "3", Neighbor: "0"})
+	assert.Nil(t, err, "DAG add failure for 3->0")
+
+	isConnected, err = dag.IsStronglyConnected()
+	assert.Nil(t, err, "DAG is strongly connected failed")
+
+	assert.Equal(t, isConnected, true, "DAG should be strongly connected ")
+
+	t.Log("Directed connected graph", dag)
+	t.Log("Connection status", isConnected)
+
+	scc, err := dag.GetStronglyConnectedComponents()
+	assert.Nil(t, err, "DAG get strongly connected failed")
+
+	actual := []string{}
+
+	for _, cc := range scc {
+		t.Log("connected-component", cc)
+
+		sort.Slice(cc, func(i, j int) bool {
+			return cc[i] < cc[j]
+		})
+
+		actual = append(actual, strings.Join(cc, ","))
+	}
+
+	expected := []string{"0,1,2,3"}
+
+	assert.Equal(t, reflect.DeepEqual(expected, actual), true, "DAG strongly connected mismatch")
+
+	dag = graph.NewDirectedGraph(graph.Connected)
+
+	dag.AddWithCost(graph.Edge{Node: "0", Neighbor: "2"})
+	dag.AddWithCost(graph.Edge{Node: "2", Neighbor: "1"})
+	dag.AddWithCost(graph.Edge{Node: "1", Neighbor: "0"})
+	dag.AddWithCost(graph.Edge{Node: "0", Neighbor: "3"})
+	dag.AddWithCost(graph.Edge{Node: "3", Neighbor: "4"})
+
+	isConnected, err = dag.IsStronglyConnected()
+	assert.Nil(t, err, "DAG is strongly connected failed")
+	assert.Equal(t, isConnected, false, "DAG should not be strongly connected")
+
+	sccComponents, err := dag.GetStronglyConnectedComponents()
+	assert.Nil(t, err, "DAG get strongly connected components failed")
+
+	expected = []string{"0,1,2", "3", "4"}
+	sort.Slice(expected, func(i, j int) bool {
+		return expected[i] < expected[j]
+	})
+
+	actual = []string{}
+
+	for _, comp := range sccComponents {
+		t.Log("connected-component", comp)
+		sort.Slice(comp, func(i, j int) bool {
+			return comp[i] < comp[j]
+		})
+
+		actual = append(actual, strings.Join(comp, ","))
+	}
+
+	assert.Equal(t, reflect.DeepEqual(expected, actual), true, "DAG strongly connected components mismatch")
 }

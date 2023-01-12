@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/karthick18/go-graph/graph"
+	"github.com/karthick18/graph"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -66,6 +66,10 @@ func (g *UndirectedGraphImpl) New() Graph {
 	return NewUndirectedGraph()
 }
 
+func (g *UndirectedGraphImpl) Path() GraphPath {
+	return g
+}
+
 func (g *UndirectedGraphImpl) String() string {
 	g.Lock()
 	defer g.Unlock()
@@ -105,6 +109,10 @@ func (g *UndirectedGraphImpl) AddWithCost(edge Edge) error {
 	g.Lock()
 	defer g.Unlock()
 
+	return g.Add(edge)
+}
+
+func (g *UndirectedGraphImpl) Add(edge Edge) error {
 	vertex := g.nodes[edge.Node]
 	neighbor := g.nodes[edge.Neighbor]
 
@@ -117,7 +125,7 @@ func (g *UndirectedGraphImpl) AddWithCost(edge Edge) error {
 		return nil
 	}
 
-	if e, ok := g.edgeMap[NodeAndNeighbor{node: edge.Node, neighbor: edge.Neighbor}]; ok {
+	if e, ok := g.edgeMap[NodeAndNeighbor{Node: edge.Node, Neighbor: edge.Neighbor}]; ok {
 		e.Cost = edge.Cost
 
 		return nil
@@ -137,7 +145,7 @@ func (g *UndirectedGraphImpl) AddWithCost(edge Edge) error {
 	neighbor.incoming = append(neighbor.incoming, vertex)
 
 	e := &edge
-	g.edgeMap[NodeAndNeighbor{node: edge.Node, neighbor: edge.Neighbor}] = e
+	g.edgeMap[NodeAndNeighbor{Node: edge.Node, Neighbor: edge.Neighbor}] = e
 	g.edges = append(g.edges, e)
 
 	return nil
@@ -165,21 +173,25 @@ func (g *UndirectedGraphImpl) RemoveEdge(nodeAndNeighbor NodeAndNeighbor) error 
 	g.Lock()
 	defer g.Unlock()
 
+	return g.Remove(nodeAndNeighbor)
+}
+
+func (g *UndirectedGraphImpl) Remove(nodeAndNeighbor NodeAndNeighbor) error {
 	edgeRef, ok := g.edgeMap[nodeAndNeighbor]
 	if !ok {
 		return fmt.Errorf("%w: no edge found for %s->%s", ErrNoEdgesInGraph,
-			nodeAndNeighbor.node, nodeAndNeighbor.neighbor)
+			nodeAndNeighbor.Node, nodeAndNeighbor.Neighbor)
 	}
 
-	vertex := g.nodes[nodeAndNeighbor.node]
-	neighbor := g.nodes[nodeAndNeighbor.neighbor]
+	vertex := g.nodes[nodeAndNeighbor.Node]
+	neighbor := g.nodes[nodeAndNeighbor.Neighbor]
 
 	if vertex == nil {
-		return fmt.Errorf("%w: no node %s in graph", ErrNoNodeInGraph, nodeAndNeighbor.node)
+		return fmt.Errorf("%w: no node %s in graph", ErrNoNodeInGraph, nodeAndNeighbor.Node)
 	}
 
 	if neighbor == nil {
-		return fmt.Errorf("%w: no neighbor node %s in graph", ErrNoNodeInGraph, nodeAndNeighbor.neighbor)
+		return fmt.Errorf("%w: no neighbor node %s in graph", ErrNoNodeInGraph, nodeAndNeighbor.Neighbor)
 	}
 
 	// remove the outgoing from vertex and incoming from neighbor and vice-versa
@@ -204,7 +216,21 @@ func (g *UndirectedGraphImpl) RemoveEdgeBoth(nodeAndNeighbor NodeAndNeighbor) er
 		return err
 	}
 
-	err = g.RemoveEdge(NodeAndNeighbor{node: nodeAndNeighbor.neighbor, neighbor: nodeAndNeighbor.node})
+	err = g.RemoveEdge(NodeAndNeighbor{Node: nodeAndNeighbor.Neighbor, Neighbor: nodeAndNeighbor.Node})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (g *UndirectedGraphImpl) RemoveBoth(nodeAndNeighbor NodeAndNeighbor) error {
+	err := g.Remove(nodeAndNeighbor)
+	if err != nil {
+		return err
+	}
+
+	err = g.Remove(NodeAndNeighbor{Node: nodeAndNeighbor.Neighbor, Neighbor: nodeAndNeighbor.Node})
 	if err != nil {
 		return err
 	}
@@ -226,6 +252,29 @@ func (g *UndirectedGraphImpl) AddWithCostBoth(edge Edge) error {
 	return nil
 }
 
+func (g *UndirectedGraphImpl) AddBoth(edge Edge) error {
+	err := g.Add(edge)
+	if err != nil {
+		return fmt.Errorf("error adding cost for first edge: %w", err)
+	}
+
+	err = g.Add(Edge{Node: edge.Neighbor, Neighbor: edge.Node, Cost: edge.Cost})
+	if err != nil {
+		return fmt.Errorf("error adding cost for second edge: %w", err)
+	}
+
+	return nil
+}
+
+func (g *UndirectedGraphImpl) GetEdge(nodeAndNeighbor NodeAndNeighbor) (Edge, error) {
+	edge, ok := g.edgeMap[nodeAndNeighbor]
+	if !ok {
+		return Edge{}, ErrNoEdgesInGraph
+	}
+
+	return *edge, nil
+}
+
 func (g *UndirectedGraphImpl) visitNoLock(node string, visit func(w string, c uint) bool) error {
 	vertex := g.nodes[node]
 	if vertex == nil {
@@ -233,7 +282,7 @@ func (g *UndirectedGraphImpl) visitNoLock(node string, visit func(w string, c ui
 	}
 
 	for _, outgoing := range vertex.outgoing {
-		edgeRef := g.edgeMap[NodeAndNeighbor{node: node, neighbor: outgoing.name}]
+		edgeRef := g.edgeMap[NodeAndNeighbor{Node: node, Neighbor: outgoing.name}]
 
 		if visit(edgeRef.Neighbor, edgeRef.Cost) {
 			return nil
@@ -281,7 +330,7 @@ func (g *UndirectedGraphImpl) BFS(node string, visit func(v, w string, c uint) b
 
 			visitedMap[w] = struct{}{}
 
-			edgeRef := g.edgeMap[NodeAndNeighbor{node: vertex.name, neighbor: w}]
+			edgeRef := g.edgeMap[NodeAndNeighbor{Node: vertex.name, Neighbor: w}]
 			if visit(edgeRef.Node, edgeRef.Neighbor, edgeRef.Cost) {
 				skip = true
 
@@ -373,12 +422,16 @@ func (g *UndirectedGraphImpl) ShortestPathAndCost(v, w string) ([]string, uint, 
 	g.Lock()
 	defer g.Unlock()
 
-	cost, parents, err := g.shortestPaths(v)
+	return g.ShortestPathWithCost(v, w)
+}
+
+func (g *UndirectedGraphImpl) ShortestPathWithCost(v, w string) ([]string, uint, error) {
+	cost, parents, err := g.shortestPaths(v, w)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	if parents[w] == "" {
+	if _, ok := parents[w]; !ok {
 		return nil, 0, fmt.Errorf("%w: no path in graph for path: %s->%s", ErrNoPathInGraph, v, w)
 	}
 
@@ -410,7 +463,7 @@ func (g *UndirectedGraphImpl) ShortestPaths(v string) (map[string]uint, map[stri
 	g.Lock()
 	defer g.Unlock()
 
-	return g.shortestPaths(v)
+	return g.shortestPaths(v, "")
 }
 
 func (g *UndirectedGraphImpl) FindAllShortestPathsAndCost(from, to string) ([][]string, uint, error) {
@@ -443,6 +496,13 @@ func (g *UndirectedGraphImpl) FindAllShortestPathsBFS(from, to string) ([][]stri
 	}
 
 	return paths, nil
+}
+
+func (g *UndirectedGraphImpl) KShortestPaths(from, to string, k int) ([]uint, [][]string, error) {
+	g.Lock()
+	defer g.Unlock()
+
+	return g.kShortestPaths(from, to, k)
 }
 
 func (g *UndirectedGraphImpl) IsStronglyConnected(vertex ...string) (bool, error) {
@@ -525,8 +585,8 @@ func (g *UndirectedGraphImpl) getBridges(node *Node,
 
 		if low[outgoing.name] > disc[node.name] {
 			*result = append(*result, *g.edgeMap[NodeAndNeighbor{
-				node:     node.name,
-				neighbor: outgoing.name,
+				Node:     node.name,
+				Neighbor: outgoing.name,
 			}])
 		}
 	}

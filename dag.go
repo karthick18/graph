@@ -61,6 +61,10 @@ func NewDirectedGraph(opts ...DagType) *DirectedGraphImpl {
 	return dag
 }
 
+func (d *DirectedGraphImpl) Path() GraphPath {
+	return d
+}
+
 func (d *DirectedGraphImpl) Clone() *DirectedGraphImpl {
 	d.Lock()
 	defer d.Unlock()
@@ -148,6 +152,10 @@ func (d *DirectedGraphImpl) AddWithCost(edge Edge) error {
 	d.Lock()
 	defer d.Unlock()
 
+	return d.Add(edge)
+}
+
+func (d *DirectedGraphImpl) Add(edge Edge) error {
 	src := d.nodes[edge.Node]
 	dst := d.nodes[edge.Neighbor]
 
@@ -230,10 +238,17 @@ func (d *DirectedGraphImpl) loopDetect(src *Node, path []string, visited map[str
 }
 
 func (d *DirectedGraphImpl) RemoveEdge(nodeAndNeighbor NodeAndNeighbor) error {
+	d.Lock()
+	defer d.Unlock()
+
+	return d.Remove(nodeAndNeighbor)
+}
+
+func (d *DirectedGraphImpl) Remove(nodeAndNeighbor NodeAndNeighbor) error {
 	edge, ok := d.edgeMap[nodeAndNeighbor]
 	if !ok {
 		return fmt.Errorf("%w: no edge found for %s->%s", ErrNoEdgesInGraph,
-			nodeAndNeighbor.node, nodeAndNeighbor.neighbor)
+			nodeAndNeighbor.Node, nodeAndNeighbor.Neighbor)
 	}
 
 	delete(d.edgeMap, nodeAndNeighbor)
@@ -245,8 +260,8 @@ func (d *DirectedGraphImpl) RemoveEdge(nodeAndNeighbor NodeAndNeighbor) error {
 		}
 	}
 
-	srcNode := d.nodes[nodeAndNeighbor.node]
-	dstNode := d.nodes[nodeAndNeighbor.neighbor]
+	srcNode := d.nodes[nodeAndNeighbor.Node]
+	dstNode := d.nodes[nodeAndNeighbor.Neighbor]
 
 	for i, dst := range srcNode.outgoing {
 		if dst.name == dstNode.name {
@@ -263,6 +278,15 @@ func (d *DirectedGraphImpl) RemoveEdge(nodeAndNeighbor NodeAndNeighbor) error {
 	}
 
 	return nil
+}
+
+func (d *DirectedGraphImpl) GetEdge(nodeAndNeighbor NodeAndNeighbor) (Edge, error) {
+	edge, ok := d.edgeMap[nodeAndNeighbor]
+	if !ok {
+		return Edge{}, ErrNoEdgesInGraph
+	}
+
+	return *edge, nil
 }
 
 func (d *DirectedGraphImpl) getIncomingDegrees() (map[string]int, error) {
@@ -469,12 +493,20 @@ func (d *DirectedGraphImpl) ShortestPathAndCost(v, w string) ([]string, uint, er
 	d.Lock()
 	defer d.Unlock()
 
-	cost, parents, err := d.shortestPaths(v)
+	return d.ShortestPathWithCost(v, w)
+}
+
+func (d *DirectedGraphImpl) ShortestPathWithCost(v, w string) ([]string, uint, error) {
+	cost, parents, err := d.shortestPaths(v, w)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	if cost[w] == Infinity || parents[w] == "" {
+	if _, ok := cost[w]; !ok {
+		return nil, 0, fmt.Errorf("%w: no path in graph from %s->%s", ErrNoPathInGraph, v, w)
+	}
+
+	if _, ok := parents[w]; !ok {
 		return nil, 0, fmt.Errorf("%w: no path in graph from %s->%s", ErrNoPathInGraph, v, w)
 	}
 
@@ -504,7 +536,7 @@ func (d *DirectedGraphImpl) ShortestPaths(from string) (map[string]uint, map[str
 	d.Lock()
 	defer d.Unlock()
 
-	return d.shortestPaths(from)
+	return d.shortestPaths(from, "")
 }
 
 func (d *DirectedGraphImpl) FindAllShortestPathsAndCost(from, to string) ([][]string, uint, error) {
@@ -539,11 +571,22 @@ func (d *DirectedGraphImpl) FindAllShortestPathsBFS(from, to string) ([][]string
 	return paths, nil
 }
 
+func (d *DirectedGraphImpl) KShortestPaths(from, to string, k int) ([]uint, [][]string, error) {
+	d.Lock()
+	defer d.Unlock()
+
+	return d.kShortestPaths(from, to, k)
+}
+
 func (d *DirectedGraphImpl) Transpose() (*DirectedGraphImpl, error) {
 	transpose := NewDirectedGraph(d.dagType)
 
 	for _, e := range d.edges {
-		edge := Edge{Node: e.Neighbor, Neighbor: e.Node, Cost: e.Cost}
+		edge := Edge{
+			Node:     e.Neighbor,
+			Neighbor: e.Node,
+			Cost:     e.Cost,
+		}
 		if err := transpose.AddWithCost(edge); err != nil {
 			return nil, fmt.Errorf("%w: error transposing graph", err)
 		}
@@ -625,7 +668,6 @@ func (d *DirectedGraphImpl) GetStronglyConnectedComponents() ([][]string, error)
 		if data.NodeColor[nd.Node] != White {
 			continue
 		}
-
 		node := transpose.nodes[nd.Node]
 		stack := list.New()
 

@@ -25,14 +25,13 @@ type Node struct {
 }
 
 type NodeAndNeighbor struct {
-	node     string
-	neighbor string
+	Node     string
+	Neighbor string
 }
 
 type Edge struct {
-	Node     string
-	Neighbor string
-	Cost     uint
+	Node, Neighbor string
+	Cost           uint
 }
 
 type NodeAndDepth struct {

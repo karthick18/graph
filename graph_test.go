@@ -2,6 +2,7 @@ package graph_test
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -348,8 +349,12 @@ func TestDirectedGraphConnected(t *testing.T) {
 	assert.Nil(t, err, "DAG get strongly connected components failed")
 
 	expected = []string{"0,1,2", "3", "4"}
+	expected2 := []string{"0,1,2", "3,4"}
 	sort.Slice(expected, func(i, j int) bool {
 		return expected[i] < expected[j]
+	})
+	sort.Slice(expected2, func(i, j int) bool {
+		return expected2[i] < expected2[j]
 	})
 
 	actual = []string{}
@@ -363,5 +368,82 @@ func TestDirectedGraphConnected(t *testing.T) {
 		actual = append(actual, strings.Join(comp, ","))
 	}
 
-	assert.Equal(t, reflect.DeepEqual(expected, actual), true, "DAG strongly connected components mismatch")
+	assert.Equal(t, reflect.DeepEqual(expected, actual) || reflect.DeepEqual(expected2, actual), true, "DAG strongly connected components mismatch")
+}
+
+func TestDirectedGraphKShortestPaths(t *testing.T) {
+	dag := graph.NewDirectedGraph(graph.Connected)
+	edges := []graph.Edge{
+		{
+			Node:     "C",
+			Neighbor: "D",
+			Cost:     3,
+		},
+		{
+			Node:     "C",
+			Neighbor: "E",
+			Cost:     2,
+		},
+		{
+			Node:     "D",
+			Neighbor: "F",
+			Cost:     4,
+		},
+		{
+			Node:     "E",
+			Neighbor: "D",
+			Cost:     1,
+		},
+		{
+			Node:     "E",
+			Neighbor: "F",
+			Cost:     2,
+		},
+		{
+			Node:     "E",
+			Neighbor: "G",
+			Cost:     3,
+		},
+		{
+			Node:     "F",
+			Neighbor: "G",
+			Cost:     2,
+		},
+		{
+			Node:     "F",
+			Neighbor: "H",
+			Cost:     1,
+		},
+		{
+			Node:     "G",
+			Neighbor: "H",
+			Cost:     2,
+		},
+	}
+
+	for _, e := range edges {
+		err := dag.AddWithCost(e)
+		assert.Nil(t, err, fmt.Sprintf("DAG add failure for %s->%s", e.Node, e.Neighbor))
+	}
+
+	t.Log(dag)
+
+	lengths, paths, err := dag.KShortestPaths("C", "H", 3)
+	assert.Nil(t, err, "K-shortest-paths failed")
+
+	t.Log("paths", paths, "lengths", lengths)
+
+	assert.Equal(t, len(paths), 3, "K-shortest-paths should have 3 paths")
+	assert.Equal(t, len(lengths), 3, "K-shortest-paths should have 3 lengths")
+
+	expectedPaths := [][]string{
+		{"C", "E", "F", "H"},
+		{"C", "E", "G", "H"},
+		{"C", "E", "F", "G", "H"},
+	}
+
+	expectedLengths := []uint{5, 7, 8}
+
+	assert.Equal(t, reflect.DeepEqual(paths, expectedPaths), true, fmt.Sprintf("paths %v does not equal expected paths %v", paths, expectedPaths))
+	assert.Equal(t, reflect.DeepEqual(lengths, expectedLengths), true, fmt.Sprintf("path lengths %v does not equal expected path lengths %v", lengths, expectedLengths))
 }

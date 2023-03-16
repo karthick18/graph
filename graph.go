@@ -4,7 +4,7 @@ type Graph interface {
 	Order() int
 	Size() int
 	Visit(vertex string, visit func(w string, c uint) bool) error
-	Walk(vertex string, visit func(w string, c uint) bool) error
+	Path() GraphPath
 	BFS(vertex string, visit func(v, w string, c uint) bool) ([]string, error)
 	DFS(...string) ([]NodeAndDepth, error)
 	DFSWithData(...string) ([]NodeAndDepth, *DFSData, error)
@@ -12,6 +12,7 @@ type Graph interface {
 	ShortestPath(v, w string) ([]string, error)
 	ShortestPathAndCost(v, w string) ([]string, uint, error)
 	ShortestPaths(v string) (map[string]uint, map[string]string, error)
+	KShortestPaths(from, to string, k int) ([]uint, [][]string, error)
 	RemoveEdge(NodeAndNeighbor) error
 }
 
